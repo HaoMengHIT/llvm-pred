@@ -63,7 +63,7 @@ while true; do
       --echo) FRONT=echo; shift ;;
       --edge) 
          EDGE=1; 
-         MPIF90=mpif90
+		 MPIF90=mpif90
          shift ;;
       --cgpop) 
          FORCE=1; 
@@ -82,11 +82,11 @@ name=${name%.bc}
 
 # compile code
 if [ "$EDGE" -eq "1" ]; then
-$FRONT $opt $ARG_BEG -load src/libLLVMPred.so -insert-edge-profiling insert-mpi-profiling $input -o /tmp/$name.e.ll -S $ARG_END
+$FRONT $opt $ARG_BEG -load src/libLLVMPred.so -insert-edge-profiling -insert-mpi-profiling $input -o /tmp/$name.e.ll -S $ARG_END
 statement_comp $i; i=$?
 suffix="e"
 else
-$FRONT $opt $ARG_BEG -load src/libLLVMPred.so -PerfPred -insert-pred-profiling -insert-mpi-profiling $input -o /tmp/$name.1.ll -S $ARG_END
+$FRONT $opt $ARG_BEG -load src/libLLVMPred.so -PerfPred -insert-pred-double-profiling -insert-mpi-profiling $input -o /tmp/$name.1.ll -S $ARG_END
 statement_comp $i; i=$?
 $FRONT $opt $ARG_BEG -load src/libLLVMPred.so -Reduce /tmp/$name.1.ll -o /tmp/$name.2.ll -S $ARG_END
 statement_comp $i; i=$?

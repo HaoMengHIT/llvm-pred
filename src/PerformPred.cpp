@@ -73,8 +73,13 @@ static Value* force_insert(llvm::Value* V, IRBuilder<>& Builder, const Twine& Na
 template<class T>
 static llvm::Value* one(T& t)
 {
+#ifdef USE_DOUBLE_ARRAY
+   auto DoubleTy = Type::getDoubleTy(t.getContext());
+   return ConstantFP::get(DoubleTy,1);
+#else
    auto I32Ty = Type::getInt32Ty(t.getContext());
    return ConstantInt::get(I32Ty,1);
+#endif
 }
 // integer log2 of a float
 static inline int32_t ilog2(float x)
@@ -398,7 +403,11 @@ bool PerformPred::runOnFunction(llvm::Function &F)
                B_PN = ViewPort[PL].second; // parent loop's view probability
                B_PN = CreateMul(Builder, B_PN, getPathProb(PL->getHeader(),
                                                            P)); // B_PN (H-->P)
+#ifdef USE_DOUBLE_ARRAY
+               B_PN = Builder.CreateFMul(B_PN, TC); // B_PN (H-->P) %tc
+#else
                B_PN = Builder.CreateMul(B_PN, TC); // B_PN (H-->P) %tc
+#endif
             }else{
                B_PN = one(*BB);
                Loop* IL;
@@ -407,11 +416,19 @@ bool PerformPred::runOnFunction(llvm::Function &F)
                     PL != NULL && !PL->contains(E_V);
                     IL = PL, PL = PL->getParentLoop()) { // caculate all nest
                                                          // parent view point
+#ifdef USE_DOUBLE_ARRAY
+                  B_PN = Builder.CreateFMul(B_PN, ViewPort[IL].third);
+#else
                   B_PN = Builder.CreateMul(B_PN, ViewPort[IL].third);
+#endif
                   B_PN = CreateMul(Builder, B_PN,
                                    getPathProb(PL->getHeader(), in_freq(IL)));
                }
+#ifdef USE_DOUBLE_ARRAY
+               B_PN = Builder.CreateFMul(B_PN, ViewPort[IL].third);
+#else
                B_PN = Builder.CreateMul(B_PN, ViewPort[IL].third);
+#endif
                B_PN = CreateMul(Builder, B_PN, getPathProb(E_V, in_freq(IL)));
             }
          }

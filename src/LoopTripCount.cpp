@@ -294,9 +294,14 @@ Value* LoopTripCount::insertTripCount(AnalysisedLoop AL, StringRef HeaderName, I
       Value *inst = Expander.expandCodeFor(scev_expr,scev_expr->getType(),InsertPos);
       IRBuilder<> B(InsertPos);
       Type* I32Ty = B.getInt32Ty();
+#ifdef USE_DOUBLE_ARRAY
+	  Type* DoubleTy = B.getDoubleTy();
+      inst = B.CreateCast(CastInst::getCastOpcode(inst, false, DoubleTy, false), inst, DoubleTy);
+#else
       if(inst->getType() != I32Ty){
          inst = B.CreateCast(CastInst::getCastOpcode(inst, false, I32Ty, false), inst, I32Ty);
       }
+#endif
       if(inst != NULL){
          inst->setName(HeaderName+".tc");
       }
@@ -310,7 +315,7 @@ Value* LoopTripCount::insertTripCount(AnalysisedLoop AL, StringRef HeaderName, I
    int OneStep = AL.AdjustStep;
 	//if there are no predecessor, we can insert code into start value basicblock
 	IRBuilder<> Builder(InsertPos);
-   Type* I32Ty = Builder.getInt32Ty();
+    Type* I32Ty = Builder.getInt32Ty();
 	Assert(start->getType()->isIntegerTy() && END->getType()->isIntegerTy() , " why increment is not integer type");
 
 #define AdjustType(v) ((v->getType() != I32Ty)?\
@@ -330,6 +335,10 @@ Value* LoopTripCount::insertTripCount(AnalysisedLoop AL, StringRef HeaderName, I
 	RES = (OneStep==1)?Builder.CreateAdd(RES,Step):(OneStep==-1)?Builder.CreateSub(RES, Step):RES;
 	if(!Step->isMinusOne()&&!Step->isOne())
 		RES = Builder.CreateSDiv(RES, Step);
+#ifdef USE_DOUBLE_ARRAY
+	Type* DoubleTy = Builder.getDoubleTy();
+    RES = Builder.CreateCast(CastInst::getCastOpcode(RES, false, DoubleTy, false), RES, DoubleTy);
+#endif
 	RES->setName(HeaderName+".tc");
 
 	return RES;
