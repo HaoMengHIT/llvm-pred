@@ -86,12 +86,14 @@ $FRONT $opt $ARG_BEG -load src/libLLVMPred.so -insert-edge-profiling -insert-mpi
 statement_comp $i; i=$?
 suffix="e"
 else
-$FRONT $opt $ARG_BEG -load src/libLLVMPred.so -PerfPred -insert-pred-double-profiling -insert-mpi-profiling $input -o /tmp/$name.1.ll -S $ARG_END
+$FRONT $opt $ARG_BEG -load src/libLLVMPred.so -PerfPred -insert-pred-double-profiling $input -o /tmp/$name.1.ll -S $ARG_END
+#$FRONT $opt $ARG_BEG -load src/libLLVMPred.so -PerfPred -insert-pred-double-profiling -insert-mpi-profiling $input -o /tmp/$name.1.ll -S $ARG_END
 statement_comp $i; i=$?
 $FRONT $opt $ARG_BEG -load src/libLLVMPred.so -Reduce /tmp/$name.1.ll -o /tmp/$name.2.ll -S $ARG_END
 statement_comp $i; i=$?
 if [ "$FORCE" -eq "1" ]; then
 $FRONT $opt $ARG_BEG -load src/libLLVMPred.so -Force -Reduce /tmp/$name.2.ll -o /tmp/$name.3.ll -S $ARG_END
+#$FRONT $opt $ARG_BEG -O3 /tmp/$name.3.ll -o /tmp/$name.4.ll -S $ARG_END
 statement_comp $i; i=$?
 suffix="3"
 else

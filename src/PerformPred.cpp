@@ -166,7 +166,11 @@ static Value* CreateMul(IRBuilder<>& Builder, Value* TripCount, BranchProbabilit
 static Value* selectBranch(IRBuilder<>& Builder, Value* True, BasicBlock* From, BasicBlock* To)
 {
    if(From == NULL || To == NULL || From == To) return True;
+#ifdef USE_DOUBLE_ARRAY
+   Value* False = ConstantFP::get(True->getType(), 0);
+#else
    Value* False = ConstantInt::get(True->getType(), 0);
+#endif
    auto Term = From->getTerminator();
    unsigned N = Term->getNumSuccessors();
    if(N < 2) return True;
