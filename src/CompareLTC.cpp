@@ -19,7 +19,7 @@
 
 #include "util.h"
 #include "config.h"
-#include "LoopTripCount.h"
+#include "CompareLTC.h"
 #include "Resolver.h"
 #include "ddg.h"
 #include "debug.h"
@@ -28,9 +28,9 @@ using namespace std;
 using namespace lle;
 using namespace llvm;
 
-char LoopTripCount::ID = 0;
+char CompareLTC::ID = 0;
 
-static RegisterPass<LoopTripCount> X("Loop-Trip-Count","Generate and insert loop trip count pass", false, false);
+static RegisterPass<CompareLTC> X("Compare-LTC","Compare loop trip count pass", false, false);
 static unsigned LoopCount;
 static unsigned UnfoundCount;
 
@@ -55,16 +55,17 @@ static Value* tryFindStart(PHINode* IND,Loop* L,BasicBlock*& StartBB)
 }
 
 
-void LoopTripCount::getAnalysisUsage(llvm::AnalysisUsage & AU) const
+void CompareLTC::getAnalysisUsage(llvm::AnalysisUsage & AU) const
 {
 	AU.addRequired<LoopInfo>();
    AU.addRequired<ScalarEvolution>();
+   AU.addRequired<DominatorTreeWrapperPass>();
 }
 
-LoopTripCount::AnalysisedLoop LoopTripCount::analysis(Loop* L)
+CompareLTC::AnalysisedLoop CompareLTC::analysis(Loop* L, Function& F)
 {
 #ifdef TC_USE_SCEV
-   auto& SE = getAnalysis<ScalarEvolution>();
+   auto& SE = getAnalysis<ScalarEvolution>(F);
    const SCEV* LoopInfo = SE.getBackedgeTakenCount(L);
    Value* TC = NULL;
    /*BasicBlock* Preheader = L->getLoopPreheader();
@@ -247,7 +248,7 @@ LoopTripCount::AnalysisedLoop LoopTripCount::analysis(Loop* L)
 	assert(OneStep<=1 && OneStep>=-1);
    return AnalysisedLoop{OneStep, start,step,end,ind};
 }
-Value* ScevToInst(const SCEV *scev_expr,llvm::Instruction *InsertPos){
+static Value* ScevToInst(const SCEV *scev_expr,llvm::Instruction *InsertPos){
    if(auto constant_scev = dyn_cast<SCEVConstant>(scev_expr)){
       return constant_scev->getValue();
    }
@@ -284,164 +285,113 @@ Value* ScevToInst(const SCEV *scev_expr,llvm::Instruction *InsertPos){
   return inst;
 }
 
-Value* LoopTripCount::insertTripCount(AnalysisedLoop AL, StringRef HeaderName, Instruction* InsertPos)
+
+bool CompareLTC::runOnModule(Module &M)
 {
-#ifdef TC_USE_SCEV
-   SCEV* scev_expr = (SCEV*)AL.userdata;
-   if(scev_expr && !isa<SCEVCouldNotCompute>(scev_expr)){
-      ScalarEvolution& SE = getAnalysis<ScalarEvolution>();
-      SCEVExpander Expander(SE,"loop-trip-count");
-      Value *inst = Expander.expandCodeFor(scev_expr,scev_expr->getType(),InsertPos);
-      IRBuilder<> B(InsertPos);
-      Type* I32Ty = B.getInt32Ty();
-#ifdef USE_DOUBLE_ARRAY
-	  Type* DoubleTy = B.getDoubleTy();
-      inst = B.CreateCast(CastInst::getCastOpcode(inst, false, DoubleTy, false), inst, DoubleTy);
-#else
-      if(inst->getType() != I32Ty){
-         inst = B.CreateCast(CastInst::getCastOpcode(inst, false, I32Ty, false), inst, I32Ty);
-      }
-#endif
-      if(inst != NULL){
-         inst->setName(HeaderName+".tc");
-      }
-      return inst;
-   }
-#endif
-	Value* RES = NULL;
-   Value* start = AL.Start, *END = AL.End;
-   if(!start || !END || !InsertPos || !AL.Step) return NULL;
-   ConstantInt* Step = dyn_cast<ConstantInt>(AL.Step);
-   int OneStep = AL.AdjustStep;
-	//if there are no predecessor, we can insert code into start value basicblock
-	IRBuilder<> Builder(InsertPos);
-    Type* I32Ty = Builder.getInt32Ty();
-	Assert(start->getType()->isIntegerTy() && END->getType()->isIntegerTy() , " why increment is not integer type");
-
-#define AdjustType(v) ((v->getType() != I32Ty)?\
-         Builder.CreateCast(CastInst::getCastOpcode(v, false, I32Ty, false), v, I32Ty):\
-         v)
-   // adjust type to int 32
-   start = AdjustType(start);
-   END = AdjustType(END);
-   Step = dyn_cast<ConstantInt>(AdjustType(Step));
-   AssertRuntime(Step, "");
-#undef AdjustType
-
-	if(Step->isMinusOne())
-		RES = Builder.CreateSub(start,END);
-	else//Step Couldn't be zero
-		RES = Builder.CreateSub(END, start);
-	RES = (OneStep==1)?Builder.CreateAdd(RES,Step):(OneStep==-1)?Builder.CreateSub(RES, Step):RES;
-	if(!Step->isMinusOne()&&!Step->isOne())
-		RES = Builder.CreateSDiv(RES, Step);
-#ifdef USE_DOUBLE_ARRAY
-	Type* DoubleTy = Builder.getDoubleTy();
-    RES = Builder.CreateCast(CastInst::getCastOpcode(RES, false, DoubleTy, false), RES, DoubleTy);
-#endif
-	RES->setName(HeaderName+".tc");
-
-	return RES;
-}
-
-bool LoopTripCount::runOnFunction(Function &F)
-{
-   LI = &getAnalysis<LoopInfo>();
+   LoopCount = UnfoundCount = 0;
    LoopMap.clear();
    CycleMap.clear();
-   unfound_str = "";
-   LoopCount = UnfoundCount = 0;
-
-   for(Loop* TopL : *LI){
-      for(auto LIte = df_begin(TopL), E = df_end(TopL); LIte!=E; ++LIte){
-         Loop* L = *LIte;
-         Value* TC = NULL;
-         AnalysisedLoop AL = {0};
-         ++LoopCount;
-         try{
-            AL = analysis(L);
-            /**trying to find inserted loop trip count in preheader */
-            BasicBlock* Preheader = L->getLoopPreheader();
-            if(Preheader){
-               string HName = (L->getHeader()->getName()+".tc").str();
-               auto Found = find_if(Preheader->begin(),Preheader->end(), [HName](Instruction& I){
-                     return I.getName()==HName;
-                     });
-               if(Found != Preheader->end()) TC = &*Found;
+   LoopVec.clear();
+   for(auto& F:M)
+   {
+      if(F.isDeclaration())
+         continue;
+      //创建新的LoopInfo,getAnalysis方法得到的LoopInfo的地址都是相同的，因此保存到vector中的都是同一个地址
+      DominatorTree* DT = &getAnalysis<DominatorTreeWrapperPass>(F).getDomTree();
+      LoopInfoType* LI = new LoopInfoType();
+      LI->releaseMemory();
+      LI->Analyze(*DT);
+      LoopVec.push_back(LI);
+      errs()<<LI<<"\n";
+      //LoopInfo* LI = &getAnalysis<LoopInfo>(F);
+      for(Loop* TopL : *LI){
+         for(auto LIte = df_begin(TopL), E = df_end(TopL); LIte!=E; ++LIte){
+            Loop* L = *LIte;
+            AnalysisedLoop AL = {0};
+            ++LoopCount;
+            try{
+               AL = analysis(L,F);
+            }catch(NotFound& E){
+               ++UnfoundCount;
             }
-            AL.TripCount = TC;
-         }catch(NotFound& E){
-            ++UnfoundCount;
-            unfound<<"  "<<E.get_line()<<":  "<<E.what()<<"\n";
-            unfound<<"\t"<<*L<<"\n";
+            LoopMap[L] = CycleMap.size(); // write to cache
+            CycleMap.push_back(AL);
+            AssertRuntime(LoopMap[L] < CycleMap.size() ," should insert indeed");
          }
-         LoopMap[L] = CycleMap.size(); // write to cache
-         CycleMap.push_back(AL);
-         AssertRuntime(LoopMap[L] < CycleMap.size() ," should insert indeed");
       }
    }
-   unfound.str();
-
+   errs()<<LoopVec.size()<<"\n";
 	return true;
 }
 
-void LoopTripCount::print(llvm::raw_ostream& OS,const llvm::Module*) const
+void CompareLTC::FindDepIns(llvm::Instruction* I) const
 {
-   int g1 = 0;
-   int g2 = 0;
-   for(Loop* TopL : *LI){
-      for(auto LIte = df_begin(TopL), E = df_end(TopL); LIte != E; ++LIte){
-         Loop* L = *LIte;
-         const AnalysisedLoop* AL = get(L);
-         if(AL == NULL) continue;
-         //OS<<"In Loop:"<<*L<<"\n";
-         OS<<"Start:"<<*AL->Start<<"\n";
-         OS<<"Step:"<<*AL->Step<<"\n";
-         OS<<"End:"<<*AL->End<<"\n";
-         if(isa<Constant>(*AL->Start) && isa<Constant>(*AL->Step) && isa<Constant>(*AL->End))
-         {
-            g1++;
-            OS<<"^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n";
-         }
-         else
-         {
-            g2++;
+   for(Use& U:I->operands())
+   {
+      Value* V = U.get();
+      if(isa<Constant>(V))
+         continue;
+      Instruction* It = dyn_cast<Instruction>(V);
+      FindDepIns(It);
+      errs()<<*V<<"\n";
+
+   }
+
+}
+bool CompareLTC::FindAllDepIns(const AnalysisedLoop* AL) const
+{
+   if(!isa<Constant>(AL->Start))
+   {
+      Instruction* start = dyn_cast<Instruction>(AL->Start);
+      FindDepIns(start);
+
+   }
+   if(!isa<Constant>(AL->Step))
+   {
+      Instruction* step = dyn_cast<Instruction>(AL->Step);
+      FindDepIns(step);
+
+   }
+   if(!isa<Constant>(AL->End))
+   {
+      Instruction* end = dyn_cast<Instruction>(AL->End);
+      FindDepIns(end);
+
+   }
+
+}
+void CompareLTC::print(llvm::raw_ostream& OS,const llvm::Module*) const 
+{
+   int loopG1 = 0;
+   int loopG2 = 0;
+   int loopG3 = 0;
+   errs()<<LoopVec.size()<<"\n";
+   for(LoopInfoType* LI : LoopVec){
+      for(Loop* TopL : *LI){
+         errs()<<*TopL<<"\n";
+         for(auto LIte = df_begin(TopL), E = df_end(TopL); LIte != E; ++LIte){
+            Loop* L = *LIte;
+            const AnalysisedLoop* AL = get(L);
+            if(AL == NULL) continue;
+            //OS<<"In Loop:"<<*L<<"\n";
+            OS <<">>>>>>>>\n";
+            OS<<"Start:"<<*AL->Start<<"\n";
+            OS<<"Step:"<<*AL->Step<<"\n";
+            OS<<"End:"<<*AL->End<<"\n";
+            FindAllDepIns(AL);
+            if(isa<Constant>(*AL->Start) && isa<Constant>(*AL->Step) && isa<Constant>(*AL->End))
+            {
+               ++loopG1;
+            }
+            else
+            {
+               ++loopG2;
+            }
          }
       }
    }
    OS << "there are " << LoopCount << " loops " << UnfoundCount
           << " unfound\n";
-   OS<<unfound_str;
-   OS<<"G1: "<<g1<<"\tG2: "<<g2<<"\n";
+   OS<<"G1: "<<loopG1<<"\tG2: "<<loopG2<<"\n";
 }
 
-Loop* LoopTripCount::getLoopFor(BasicBlock *BB) const
-{
-   return LI->getLoopFor(BB);
-}
-
-Value* LoopTripCount::getOrInsertTripCount(Loop *L)
-{
-   if(L->getLoopPreheader()==NULL){
-      InsertPreheaderForLoop(L, this);
-   }
-   Instruction* InsertPos = L->getLoopPredecessor()->getTerminator();
-   Value* V = getTripCount(L);
-   if(V==NULL){
-      auto ite = LoopMap.find(L);
-      if(ite == LoopMap.end()) return NULL;
-      AnalysisedLoop& AL = CycleMap[ite->second];
-      AL.TripCount = V = insertTripCount(AL, L->getHeader()->getName(), InsertPos);
-   }
-   return V;
-}
-
-void LoopTripCount::updateCache(LoopInfo& LI)
-{
-   size_t Idx = 0;
-   for(Loop* TopL : LI){
-      for(auto LIte = df_begin(TopL), E = df_end(TopL); LIte != E; ++LIte){
-         LoopMap[*LIte] = Idx++;
-      }
-   }
-}
