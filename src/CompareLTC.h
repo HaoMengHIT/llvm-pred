@@ -7,6 +7,7 @@
 #include <llvm/Analysis/ScalarEvolution.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Dominators.h>
+#include <llvm/IR/Instruction.h>
 
 #include <iostream>
 #include <map>
@@ -44,13 +45,15 @@ namespace lle
       ///////////////////////////////////
       // an unstable cache, the Loop -> index of Loop in df order
       llvm::DenseMap<llvm::Loop*, size_t> LoopMap;
+      llvm::DenseMap<llvm::Instruction*, std::vector<llvm::Instruction*> > MpiMap;
       AnalysisedLoop analysis(llvm::Loop*, llvm::Function&);
 		public:
 		static char ID;
 		explicit CompareLTC():ModulePass(ID){ }
 		void getAnalysisUsage(llvm::AnalysisUsage&) const;
-      void FindDepIns(llvm::Instruction* I) const;
-      bool FindAllDepIns(const AnalysisedLoop* AL) const;
+      void FindDepIns(llvm::Instruction* I, std::vector<llvm::Instruction*>& DepIns) const;
+      void FindMPIDepIns(llvm::Instruction* I); 
+      bool FindAllDepIns(const AnalysisedLoop* AL, std::vector<llvm::Instruction*>& DepIns) const;
 		bool runOnModule(llvm::Module& M);
 		void print(llvm::raw_ostream&,const llvm::Module*) const;
       // use this before getTripCount, to make a stable Loop Index Order

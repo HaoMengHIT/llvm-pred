@@ -37,27 +37,27 @@ static unsigned UnfoundCount;
 //find start value fron induction variable
 static Value* tryFindStart(PHINode* IND,Loop* L,BasicBlock*& StartBB)
 {
-	if(L->getLoopPredecessor()){ 
-		StartBB = L->getLoopPredecessor();
-		return IND->getIncomingValueForBlock(StartBB);
-	} else {
-		Value* start = NULL;
-		for(int I = 0,E = IND->getNumIncomingValues();I!=E;++I){
-			if(L->contains(IND->getIncomingBlock(I))) continue;
-			//if there are many entries, assume they are all equal
-			//****??? should do castoff ???******
-			if(start && start != IND->getIncomingValue(I)) return NULL;
-			start = IND->getIncomingValue(I);
-			StartBB = IND->getIncomingBlock(I);
-		}
-		return start;
-	}
+   if(L->getLoopPredecessor()){ 
+      StartBB = L->getLoopPredecessor();
+      return IND->getIncomingValueForBlock(StartBB);
+   } else {
+      Value* start = NULL;
+      for(int I = 0,E = IND->getNumIncomingValues();I!=E;++I){
+         if(L->contains(IND->getIncomingBlock(I))) continue;
+         //if there are many entries, assume they are all equal
+         //****??? should do castoff ???******
+         if(start && start != IND->getIncomingValue(I)) return NULL;
+         start = IND->getIncomingValue(I);
+         StartBB = IND->getIncomingBlock(I);
+      }
+      return start;
+   }
 }
 
 
 void CompareLTC::getAnalysisUsage(llvm::AnalysisUsage & AU) const
 {
-	AU.addRequired<LoopInfo>();
+   AU.addRequired<LoopInfo>();
    AU.addRequired<ScalarEvolution>();
    AU.addRequired<DominatorTreeWrapperPass>();
 }
@@ -69,13 +69,13 @@ CompareLTC::AnalysisedLoop CompareLTC::analysis(Loop* L, Function& F)
    const SCEV* LoopInfo = SE.getBackedgeTakenCount(L);
    Value* TC = NULL;
    /*BasicBlock* Preheader = L->getLoopPreheader();
-   if(Preheader){
-      string HName = (L->getHeader()->getName()+".tc").str();
-      auto Found = find_if(Preheader->begin(),Preheader->end(), [HName](Instruction& I){
-            return I.getName()==HName;
-            });
-      if(Found != Preheader->end()) TC = &*Found;
-   }*/
+     if(Preheader){
+     string HName = (L->getHeader()->getName()+".tc").str();
+     auto Found = find_if(Preheader->begin(),Preheader->end(), [HName](Instruction& I){
+     return I.getName()==HName;
+     });
+     if(Found != Preheader->end()) TC = &*Found;
+     }*/
    if(!isa<SCEVCouldNotCompute>(LoopInfo)){
       AnalysisedLoop ret = {0};
       ret.userdata = const_cast<void*>((const void*)LoopInfo);
@@ -83,55 +83,55 @@ CompareLTC::AnalysisedLoop CompareLTC::analysis(Loop* L, Function& F)
       return ret;
    }
 #endif
-	Value* start = NULL;
-	Value* ind = NULL;
-	Value* end = NULL;
-	ConstantInt* step = NULL,*PrevStep = NULL;/*only used if next is phi node*/
+   Value* start = NULL;
+   Value* ind = NULL;
+   Value* end = NULL;
+   ConstantInt* step = NULL,*PrevStep = NULL;/*only used if next is phi node*/
    ResolveEngine RE;
    RE.addRule(RE.base_rule);
    RE.addRule(RE.useonly_rule);
 
-	// inspired from Loop::getCanonicalInductionVariable
-	BasicBlock *H = L->getHeader();
-	BasicBlock* LoopPred = L->getLoopPredecessor();
-	BasicBlock* startBB = NULL;//which basicblock stores start value
-	int OneStep = 0;// the extra add or plus step for calc
+   // inspired from Loop::getCanonicalInductionVariable
+   BasicBlock *H = L->getHeader();
+   BasicBlock* LoopPred = L->getLoopPredecessor();
+   BasicBlock* startBB = NULL;//which basicblock stores start value
+   int OneStep = 0;// the extra add or plus step for calc
 
    AssertThrow(LoopPred, not_found("Require Loop has a Pred"));
-	/** whats difference on use of predecessor and preheader??*/
-	AssertThrow(L->getLoopLatch(), not_found("need loop simplify form"));
+   /** whats difference on use of predecessor and preheader??*/
+   AssertThrow(L->getLoopLatch(), not_found("need loop simplify form"));
 
-	BasicBlock* TE = NULL;//True Exit
-	SmallVector<BasicBlock*,4> Exits;
-	L->getExitingBlocks(Exits);
+   BasicBlock* TE = NULL;//True Exit
+   SmallVector<BasicBlock*,4> Exits;
+   L->getExitingBlocks(Exits);
 
    if(Exits.size()==1) 
       TE = Exits.front();
-	else{
-		if(std::find(Exits.begin(),Exits.end(),L->getLoopLatch())!=Exits.end()) TE = L->getLoopLatch();
-		else{
-			SmallVector<llvm::Loop::Edge,4> ExitEdges;
-			L->getExitEdges(ExitEdges);
-			//stl 用法,先把所有满足条件的元素(出口的结束符是不可到达)移动到数组的末尾,再统一删除
-			ExitEdges.erase(std::remove_if(ExitEdges.begin(), ExitEdges.end(), 
-						[](llvm::Loop::Edge& I){
-						return isa<UnreachableInst>(I.second->getTerminator());
-						}), ExitEdges.end());
-			if(ExitEdges.size()==1) TE = const_cast<BasicBlock*>(ExitEdges.front().first);
-		}
-	}
-	//process true exit
-	AssertThrow(TE, not_found("need have a true exit"));
+   else{
+      if(std::find(Exits.begin(),Exits.end(),L->getLoopLatch())!=Exits.end()) TE = L->getLoopLatch();
+      else{
+         SmallVector<llvm::Loop::Edge,4> ExitEdges;
+         L->getExitEdges(ExitEdges);
+         //stl 用法,先把所有满足条件的元素(出口的结束符是不可到达)移动到数组的末尾,再统一删除
+         ExitEdges.erase(std::remove_if(ExitEdges.begin(), ExitEdges.end(), 
+                  [](llvm::Loop::Edge& I){
+                  return isa<UnreachableInst>(I.second->getTerminator());
+                  }), ExitEdges.end());
+         if(ExitEdges.size()==1) TE = const_cast<BasicBlock*>(ExitEdges.front().first);
+      }
+   }
+   //process true exit
+   AssertThrow(TE, not_found("need have a true exit"));
 
-	Instruction* IndOrNext = NULL;
+   Instruction* IndOrNext = NULL;
    //终止块的终止指令：分情况讨论branchinst,switchinst;
    //跳转指令br bool a1,a2;condition<-->bool
-	if(isa<BranchInst>(TE->getTerminator())){
-		const BranchInst* EBR = cast<BranchInst>(TE->getTerminator());
-		AssertThrow(EBR->isConditional(), not_found("end branch is not conditional"));
-		ICmpInst* EC = dyn_cast<ICmpInst>(EBR->getCondition());
+   if(isa<BranchInst>(TE->getTerminator())){
+      const BranchInst* EBR = cast<BranchInst>(TE->getTerminator());
+      AssertThrow(EBR->isConditional(), not_found("end branch is not conditional"));
+      ICmpInst* EC = dyn_cast<ICmpInst>(EBR->getCondition());
       AssertThrow(EC, not_found("end condition is not icmp"));
-		if(EC->getPredicate() == EC->ICMP_SGT){
+      if(EC->getPredicate() == EC->ICMP_SGT){
          AssertThrow(!L->contains(EBR->getSuccessor(0)), not_found(dbg()<<"abnormal exit with great than:"<<*EBR));
          //终止块的终止指令---->跳出执行循环外的指令
          OneStep += 1;
@@ -142,31 +142,31 @@ CompareLTC::AnalysisedLoop CompareLTC::analysis(Loop* L, Function& F)
       } else {
          AssertThrow(0, not_found(dbg()<<"unknow combination of end condition:"<<*EC));
       }
-		IndOrNext = dyn_cast<Instruction>(castoff(EC->getOperand(0)));//去掉类型转化
-		end = EC->getOperand(1);
-	}else if(isa<SwitchInst>(TE->getTerminator())){
-		SwitchInst* ESW = const_cast<SwitchInst*>(cast<SwitchInst>(TE->getTerminator()));
-		IndOrNext = dyn_cast<Instruction>(castoff(ESW->getCondition()));
-		for(auto I = ESW->case_begin(),E = ESW->case_end();I!=E;++I){
-			if(!L->contains(I.getCaseSuccessor())){
-				AssertThrow(!end, not_found("shouldn't have two ends"));
-				end = I.getCaseValue();
-			}
-		}
-	}else{
-		AssertThrow(0 ,not_found("unknow terminator type"));
-	}
+      IndOrNext = dyn_cast<Instruction>(castoff(EC->getOperand(0)));//去掉类型转化
+      end = EC->getOperand(1);
+   }else if(isa<SwitchInst>(TE->getTerminator())){
+      SwitchInst* ESW = const_cast<SwitchInst*>(cast<SwitchInst>(TE->getTerminator()));
+      IndOrNext = dyn_cast<Instruction>(castoff(ESW->getCondition()));
+      for(auto I = ESW->case_begin(),E = ESW->case_end();I!=E;++I){
+         if(!L->contains(I.getCaseSuccessor())){
+            AssertThrow(!end, not_found("shouldn't have two ends"));
+            end = I.getCaseValue();
+         }
+      }
+   }else{
+      AssertThrow(0 ,not_found("unknow terminator type"));
+   }
 
-	AssertThrow(L->isLoopInvariant(end), not_found("end value should be loop invariant"));//至此得END值
+   AssertThrow(L->isLoopInvariant(end), not_found("end value should be loop invariant"));//至此得END值
 
-	Instruction* next = NULL;
-	bool addfirst = false;//add before icmp ed
+   Instruction* next = NULL;
+   bool addfirst = false;//add before icmp ed
 
-	DISABLE(errs()<<*IndOrNext<<"\n");
-	if(isa<LoadInst>(IndOrNext)){
-		//memory depend analysis
-		Value* PSi = IndOrNext->getOperand(0);//point type Step.i
-		int SICount[2] = {0};//store in predecessor count,store in loop body count
+   DISABLE(errs()<<*IndOrNext<<"\n");
+   if(isa<LoadInst>(IndOrNext)){
+      //memory depend analysis
+      Value* PSi = IndOrNext->getOperand(0);//point type Step.i
+      int SICount[2] = {0};//store in predecessor count,store in loop body count
 
       Value* Store;
       RE.resolve(&IndOrNext->getOperandUse(0), RE.findStore(Store));
@@ -180,9 +180,9 @@ CompareLTC::AnalysisedLoop CompareLTC::analysis(Loop* L, Function& F)
          }
       }
 
-		for(auto I = PSi->user_begin(),E = PSi->user_end();I!=E;++I){
-			StoreInst* SI = dyn_cast<StoreInst>(*I);
-			if(SI==NULL || SI->getOperand(1) != PSi) continue;
+      for(auto I = PSi->user_begin(),E = PSi->user_end();I!=E;++I){
+         StoreInst* SI = dyn_cast<StoreInst>(*I);
+         if(SI==NULL || SI->getOperand(1) != PSi) continue;
          if(L->contains(SI)){
             Instruction* SI0 = dyn_cast<Instruction>(SI->getValueOperand());
             if(SI0 && SI0->getOpcode() == Instruction::Add){
@@ -190,62 +190,62 @@ CompareLTC::AnalysisedLoop CompareLTC::analysis(Loop* L, Function& F)
                ++SICount[1];
             }
          }
-		}
+      }
 
       AssertThrow(SICount[0]==1 && SICount[1]==1, 
             not_found(dbg() <<"should only have 1 store in/before loop:"
                <<SICount[1] <<"," <<SICount[0]<<*PSi));
-		ind = IndOrNext;
-	}else{
-		if(isa<PHINode>(IndOrNext)){
-			PHINode* PHI = cast<PHINode>(IndOrNext);
-			ind = IndOrNext;
-			if(castoff(PHI->getIncomingValue(0)) == castoff(PHI->getIncomingValue(1)) && PHI->getParent() != H)
-				ind = castoff(PHI->getIncomingValue(0));
-			addfirst = false;
-		}else if(IndOrNext->getOpcode() == Instruction::Add){
-			next = IndOrNext;
-			addfirst = true;
-		}else{
-			AssertThrow(0 , not_found("unknow how to analysis"));
-		}
+      ind = IndOrNext;
+   }else{
+      if(isa<PHINode>(IndOrNext)){
+         PHINode* PHI = cast<PHINode>(IndOrNext);
+         ind = IndOrNext;
+         if(castoff(PHI->getIncomingValue(0)) == castoff(PHI->getIncomingValue(1)) && PHI->getParent() != H)
+            ind = castoff(PHI->getIncomingValue(0));
+         addfirst = false;
+      }else if(IndOrNext->getOpcode() == Instruction::Add){
+         next = IndOrNext;
+         addfirst = true;
+      }else{
+         AssertThrow(0 , not_found("unknow how to analysis"));
+      }
 
-		for(auto I = H->begin();isa<PHINode>(I);++I){
-			PHINode* P = cast<PHINode>(I);
-			if(ind && P == ind){
-				start = tryFindStart(P, L, startBB);
-				next = dyn_cast<Instruction>(P->getIncomingValueForBlock(L->getLoopLatch()));
-			}else if(next && P->getIncomingValueForBlock(L->getLoopLatch()) == next){
-				start = tryFindStart(P, L, startBB);
-				ind = P;
-			}
-		}
-	}
+      for(auto I = H->begin();isa<PHINode>(I);++I){
+         PHINode* P = cast<PHINode>(I);
+         if(ind && P == ind){
+            start = tryFindStart(P, L, startBB);
+            next = dyn_cast<Instruction>(P->getIncomingValueForBlock(L->getLoopLatch()));
+         }else if(next && P->getIncomingValueForBlock(L->getLoopLatch()) == next){
+            start = tryFindStart(P, L, startBB);
+            ind = P;
+         }
+      }
+   }
 
-	AssertThrow(start , not_found("couldn't find a start value"));
+   AssertThrow(start , not_found("couldn't find a start value"));
 
-	//process non add later
-	unsigned next_phi_idx = 0;
+   //process non add later
+   unsigned next_phi_idx = 0;
    AssertThrow(next, not_found("Next not found"));
-	PHINode* next_phi = dyn_cast<PHINode>(next);
-	do{
-		if(next_phi) {
-			next = dyn_cast<Instruction>(next_phi->getIncomingValue(next_phi_idx));
-			AssertThrow(next, not_found("Next not found"));
-			if(step&&PrevStep){
-				Assert(step->getSExtValue() == PrevStep->getSExtValue(),"");
-			}
-			PrevStep = step;
-		}
-		Assert(next->getOpcode() == Instruction::Add , "why induction increment is not Add");
-		Assert(next->getOperand(0) == ind ,"why induction increment is not add it self");
-		step = dyn_cast<ConstantInt>(next->getOperand(1));
+   PHINode* next_phi = dyn_cast<PHINode>(next);
+   do{
+      if(next_phi) {
+         next = dyn_cast<Instruction>(next_phi->getIncomingValue(next_phi_idx));
+         AssertThrow(next, not_found("Next not found"));
+         if(step&&PrevStep){
+            Assert(step->getSExtValue() == PrevStep->getSExtValue(),"");
+         }
+         PrevStep = step;
+      }
+      Assert(next->getOpcode() == Instruction::Add , "why induction increment is not Add");
+      Assert(next->getOperand(0) == ind ,"why induction increment is not add it self");
+      step = dyn_cast<ConstantInt>(next->getOperand(1));
       AssertThrow(step, not_found(dbg() << "step is not a constant: " << *next->getOperand(1)))
-	}while(next_phi && ++next_phi_idx<next_phi->getNumIncomingValues());
+   }while(next_phi && ++next_phi_idx<next_phi->getNumIncomingValues());
 
-	if(addfirst) OneStep -= 1;
-	if(step->isMinusOne()) OneStep*=-1;
-	assert(OneStep<=1 && OneStep>=-1);
+   if(addfirst) OneStep -= 1;
+   if(step->isMinusOne()) OneStep*=-1;
+   assert(OneStep<=1 && OneStep>=-1);
    return AnalysisedLoop{OneStep, start,step,end,ind};
 }
 static Value* ScevToInst(const SCEV *scev_expr,llvm::Instruction *InsertPos){
@@ -282,7 +282,7 @@ static Value* ScevToInst(const SCEV *scev_expr,llvm::Instruction *InsertPos){
    }else if(auto cast_expr = dyn_cast<SCEVCastExpr>(scev_expr)){
       return ScevToInst(cast_expr->getOperand(), InsertPos);
    }
-  return inst;
+   return inst;
 }
 
 
@@ -302,7 +302,6 @@ bool CompareLTC::runOnModule(Module &M)
       LI->releaseMemory();
       LI->Analyze(*DT);
       LoopVec.push_back(LI);
-      errs()<<LI<<"\n";
       //LoopInfo* LI = &getAnalysis<LoopInfo>(F);
       for(Loop* TopL : *LI){
          for(auto LIte = df_begin(TopL), E = df_end(TopL); LIte!=E; ++LIte){
@@ -320,11 +319,50 @@ bool CompareLTC::runOnModule(Module &M)
          }
       }
    }
+   for(auto&F:M)
+   {
+      if(F.isDeclaration())
+         continue;
+      errs()<<"=============\n";
+      for(inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I)
+      {
+         Instruction* Ins = dyn_cast<Instruction>(&*I);
+         if(isa<CallInst>(Ins))
+         {
+
+            CallInst* cI = dyn_cast<CallInst>(Ins);
+            Value* CV = const_cast<CallInst*>(cI)->getCalledValue();
+            Function* cF = dyn_cast<Function>(castoff(CV));
+            StringRef str = cF->getName();
+            errs()<<str<<"\n";
+            if(str.startswith("mpi_")||str.startswith("MPI_"))
+            {
+               //errs()<<cF->getName()<<"\n";
+               for(Use& U:Ins->operands())
+               {
+
+               }
+               //FindDepIns(cI);
+            }
+         }
+      }
+
+   }
    errs()<<LoopVec.size()<<"\n";
-	return true;
+   return true;
+}
+static bool isInVector(llvm::Instruction* I, std::vector<Instruction*>& DepIns)
+{
+   for(int i = 0;i < DepIns.size();i++)
+   {
+      if(I == DepIns[i])
+         return true;
+   }
+   return false;
+
 }
 
-void CompareLTC::FindDepIns(llvm::Instruction* I) const
+void CompareLTC::FindMPIDepIns(llvm::Instruction* I) 
 {
    for(Use& U:I->operands())
    {
@@ -332,30 +370,48 @@ void CompareLTC::FindDepIns(llvm::Instruction* I) const
       if(isa<Constant>(V))
          continue;
       Instruction* It = dyn_cast<Instruction>(V);
-      FindDepIns(It);
-      errs()<<*V<<"\n";
-
+      MpiMap[I].push_back(It);
    }
 
 }
-bool CompareLTC::FindAllDepIns(const AnalysisedLoop* AL) const
+void CompareLTC::FindDepIns(llvm::Instruction* I, std::vector<Instruction*>& DepIns) const
+{
+   for(Use& U:I->operands())
+   {
+      Value* V = U.get();
+   errs()<<*V<<"----------------------------------------\n";
+      if(isa<Constant>(V))
+         continue;
+      Instruction* It = dyn_cast<Instruction>(V);
+      if(It == NULL || isInVector(It, DepIns))
+         continue;
+      DepIns.push_back(It);
+      errs()<<*It<<"----------------------------------------\n";
+      FindDepIns(It, DepIns);
+   }
+
+}
+bool CompareLTC::FindAllDepIns(const AnalysisedLoop* AL, std::vector<Instruction*>& DepIns) const
 {
    if(!isa<Constant>(AL->Start))
    {
       Instruction* start = dyn_cast<Instruction>(AL->Start);
-      FindDepIns(start);
+      DepIns.push_back(start);
+      FindDepIns(start, DepIns);
 
    }
    if(!isa<Constant>(AL->Step))
    {
       Instruction* step = dyn_cast<Instruction>(AL->Step);
-      FindDepIns(step);
+      DepIns.push_back(step);
+      FindDepIns(step, DepIns);
 
    }
    if(!isa<Constant>(AL->End))
    {
       Instruction* end = dyn_cast<Instruction>(AL->End);
-      FindDepIns(end);
+      DepIns.push_back(end);
+      FindDepIns(end, DepIns);
 
    }
 
@@ -378,7 +434,16 @@ void CompareLTC::print(llvm::raw_ostream& OS,const llvm::Module*) const
             OS<<"Start:"<<*AL->Start<<"\n";
             OS<<"Step:"<<*AL->Step<<"\n";
             OS<<"End:"<<*AL->End<<"\n";
-            FindAllDepIns(AL);
+            std::vector<Instruction*> DepIns;
+            DepIns.clear();
+            FindAllDepIns(AL, DepIns);
+            errs()<<"------\n";
+            errs()<<DepIns.size()<<"\n";
+            for(int i = 0;i<DepIns.size();i++)
+            {
+               //errs()<<"> "<<*DepIns[i]<<"\n";
+            }
+
             if(isa<Constant>(*AL->Start) && isa<Constant>(*AL->Step) && isa<Constant>(*AL->End))
             {
                ++loopG1;
@@ -391,7 +456,7 @@ void CompareLTC::print(llvm::raw_ostream& OS,const llvm::Module*) const
       }
    }
    OS << "there are " << LoopCount << " loops " << UnfoundCount
-          << " unfound\n";
+      << " unfound\n";
    OS<<"G1: "<<loopG1<<"\tG2: "<<loopG2<<"\n";
 }
 
